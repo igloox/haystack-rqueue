@@ -12,7 +12,7 @@ setup(
     url='http://github.com/mandx/haystack-rqueue',
     install_requires=[
         'django-haystack>=2.0',
-        'django-rq>=0.5.1',
+        'django-rq>=0.6.1',
     ],
     packages=[
         'haystack_rqueue',
