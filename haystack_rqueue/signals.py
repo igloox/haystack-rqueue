@@ -96,25 +96,41 @@ class RQueueSignalProcessor(BaseSignalProcessor):
         )
 
     def setup(self):
+        signals.post_save.connect(self.enqueue_save)
+        signals.post_delete.connect(self.enqueue_delete)
 
-        for using in self.connections.connections_info.keys():
-            for model_class in self.connections[using].get_unified_index().get_indexed_models():
-                signals.post_save.connect(
-                    self.enqueue_save,
-                    sender=model_class,
-                    dispatch_uid=self._get_dispatch_uid(model_class) + '-save'
-                )
-
-                signals.post_delete.connect(
-                    self.enqueue_delete, sender=model_class,
-                    dispatch_uid=self._get_dispatch_uid(model_class) + '-delete')
 
     def teardown(self):
         signals.post_save.disconnect(self.enqueue_save)
         signals.post_delete.disconnect(self.enqueue_delete)
+        
+    def enqueue_save(self, sender, instance, **kwargs):
+        return self.enqueue('save', instance, sender, **kwargs)
 
-    def enqueue_save(self, instance, **kwargs):
+    def enqueue_delete(self, sender, instance, **kwargs):
+        return self.enqueue('delete', instance, sender, **kwargs)
+
+    def enqueue_task(self,action,instance):
+        getattr(self,'enqueue_task_'+action)(instance)
+
+    def enqueue_task_save(self, instance):
         get_queue(QUEUE_NAME).enqueue(index_update_obj, get_identifier(instance))
 
-    def enqueue_delete(self, instance, **kwargs):
+    def enqueue_task_delete(self, instance):
         get_queue(QUEUE_NAME).enqueue(index_delete_obj, get_identifier(instance))
+
+    def enqueue(self, action, instance, sender, **kwargs):
+
+        using_backends = self.connection_router.for_write(instance=instance)
+
+        for using in using_backends:
+            try:
+                connection = self.connections[using]
+                index = connection.get_unified_index().get_index(sender)
+            except NotHandled:
+                continue  # Check next backend
+
+            if action == 'save' and not index.should_update(instance):
+                continue
+            self.enqueue_task(action, instance)
+
