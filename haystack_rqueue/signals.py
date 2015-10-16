@@ -1,4 +1,4 @@
-from django.db.models import signals, get_model
+from django.db.models import signals
 
 from haystack.signals import BaseSignalProcessor
 
@@ -36,7 +36,14 @@ def get_model_class(object_path):
     bits = object_path.split('.')
     app_name = '.'.join(bits[:-1])
     classname = bits[-1]
-    return get_model(app_name, classname)
+    try:
+        # Django >= 1.7
+        from django.apps import apps
+        return apps.get_model(app_name, classname)
+    except ImportError:
+        # Django < 1.7
+        from django.db.models import get_model
+        return get_model(app_name, classname)
 
 
 def get_index_for_model(model_class, connection=DEFAULT_ALIAS):
@@ -103,7 +110,7 @@ class RQueueSignalProcessor(BaseSignalProcessor):
     def teardown(self):
         signals.post_save.disconnect(self.enqueue_save)
         signals.post_delete.disconnect(self.enqueue_delete)
-        
+
     def enqueue_save(self, sender, instance, **kwargs):
         return self.enqueue('save', instance, sender, **kwargs)
 
@@ -133,4 +140,3 @@ class RQueueSignalProcessor(BaseSignalProcessor):
             if action == 'save' and not index.should_update(instance):
                 continue
             self.enqueue_task(action, instance)
-
